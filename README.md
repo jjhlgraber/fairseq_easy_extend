@@ -1,25 +1,29 @@
 # Reinforcement Learning for Non-Autoregressive Neural Machine Translation
 
 ## Installing env
-
+```sh
 conda create -n NMT python=3.8
 conda activate NMT
 pip install -r requirements.txt -r "# Torch packages"
 pip install -r requirements.txt -r "# fairseq"
+```
 
 ## Clone extension repo
+```sh
 !git clone https://github.com/jjhlgraber/fairseq_easy_extend.git
 cd fairseq_easy_extend
+```
 
 ## Finetuning example for bleu
+```sh
 python train.py \
-    --config-dir "fairseq_easy_extend/models/nat" \
-    --config-name "cmlm_config.yaml" \
-    criterion.sentence_level_metric=blue \
-    task.data=/home/job/Documents/NLP2/NA-NMT-Project/iwslt14.tokenized.de-en \
-    checkpoint.restore_file=/home/job/Documents/NLP2/NA-NMT-Project/checkpoint_best.pt \
-    checkpoint.reset_optimizer=True
-
+   --config-dir "fairseq_easy_extend/models/nat" \
+   --config-name "cmlm_config.yaml" \
+   criterion.sentence_level_metric=blue \
+   task.data=/home/job/Documents/NLP2/NA-NMT-Project/iwslt14.tokenized.de-en \
+   checkpoint.restore_file=/home/job/Documents/NLP2/NA-NMT-Project/checkpoint_best.pt \
+   checkpoint.reset_optimizer=True
+```
 
 ## Requirements
 
