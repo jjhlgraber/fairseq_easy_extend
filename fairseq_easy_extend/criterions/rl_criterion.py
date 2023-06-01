@@ -18,7 +18,7 @@ from torchtext.data.metrics import bleu_score
 @dataclass
 class RLCriterionConfig(FairseqDataclass):
     sentence_level_metric: str = field(
-        default="bleu", metadata={"help": "sentence level metric"}
+        default="BLEU4", metadata={"help": "sentence level metric"}
     )
 
 
@@ -129,7 +129,7 @@ class RLCriterion(FairseqCriterion):
             )
 
             with torch.no_grad():
-                if self.metric == "bleu":
+                if self.metric == "BLEU4":
                     # # We follow the convention for comparibility of naively splitting on white space
                     # reward = bleu_score(
                     #     sampled_sentence_string.split(),
@@ -193,7 +193,7 @@ class RLCriterion(FairseqCriterion):
                 # when you apply string, it treats every token as a separate sentence --> hence you calc token-level metric. SO it makes much more sense to apply mask after sampling(!)
 
                 ####HERE calculate metric###
-                if self.metric == "bleu":
+                if self.metric == "BLEU4":
                     # We follow the convention for comparibility of naively splitting on white space
                     # Compute the reward on sentence level
                     reward = torch.tensor(

@@ -19,7 +19,7 @@ pip install -r requirements.txt -r "# fairseq"
 python train.py \
    --config-dir "fairseq_easy_extend/models/nat" \
    --config-name "cmlm_config.yaml" \
-   criterion.sentence_level_metric=blue \
+   criterion.sentence_level_metric=BLEU4 \
    task.data=/home/job/Documents/NLP2/NA-NMT-Project/iwslt14.tokenized.de-en \
    checkpoint.restore_file=/home/job/Documents/NLP2/NA-NMT-Project/checkpoint_best.pt \
    checkpoint.reset_optimizer=True
