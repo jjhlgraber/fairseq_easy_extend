@@ -1,3 +1,4 @@
 # fairseq
 fairseq==0.12.2
 sacremoses
+torchmetrics

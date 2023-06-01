@@ -115,8 +115,8 @@ class RLCriterion(FairseqCriterion):
         # but make sure you apply padding mask after both on log prob outputs, reward and id's (you might need them for gather function to           extract log_probs of the samples)
 
         # Example 1: mask before sampling
-        if masks is not None:
-            # if False:
+        # if masks is not None:
+        if False:
             outputs, targets = outputs[masks], targets[masks]
             # we take a softmax over outputs
             probs = F.softmax(outputs, dim=-1)
@@ -190,6 +190,9 @@ class RLCriterion(FairseqCriterion):
                 )
                 for target_sent in targets
             ]
+            print(targets_strings)
+            print(self.decode(targets))
+            assert False
 
             # print(sampled_sentence_string) --> if you apply mask before, you get a sentence which is one token
             # imagine output[mask]=[MxV] where M is a sequence of all tokens in batch excluding padding symbols
