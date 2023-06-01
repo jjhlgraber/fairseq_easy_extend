@@ -11,8 +11,16 @@ from dataclasses import dataclass, field
 from fairseq.logging import metrics
 
 # Added imports
-import torch.nn.functional as F
 from torchtext.data.metrics import bleu_score
+from torchmetrics.functional import chrf_score
+import warnings
+
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        action="ignore",
+        category=UserWarning,
+    )
+    import torch.nn.functional as F
 
 
 @dataclass
@@ -26,7 +34,7 @@ class RLCriterionConfig(FairseqDataclass):
 class RLCriterion(FairseqCriterion):
     def __init__(self, task, sentence_level_metric):
         super().__init__(task)
-        self.metric = sentence_level_metric
+        self.metric = sentence_level_metric.lower()
         self.tokenizer = encoders.build_tokenizer(Namespace(tokenizer="moses"))
         self.tgt_dict = task.target_dictionary
 
@@ -38,7 +46,6 @@ class RLCriterion(FairseqCriterion):
         3) logging outputs to display while training
         """
         nsentences, ntokens = sample["nsentences"], sample["ntokens"]
-        # print(self.metric)
         # B x T
         src_tokens, src_lengths = (
             sample["net_input"]["src_tokens"],
@@ -108,8 +115,8 @@ class RLCriterion(FairseqCriterion):
         # but make sure you apply padding mask after both on log prob outputs, reward and id's (you might need them for gather function to           extract log_probs of the samples)
 
         # Example 1: mask before sampling
-        # if masks is not None:
-        if False:
+        if masks is not None:
+            # if False:
             outputs, targets = outputs[masks], targets[masks]
             # we take a softmax over outputs
             probs = F.softmax(outputs, dim=-1)
@@ -129,15 +136,7 @@ class RLCriterion(FairseqCriterion):
             )
 
             with torch.no_grad():
-                if self.metric == "BLEU4":
-                    # # We follow the convention for comparibility of naively splitting on white space
-                    # reward = bleu_score(
-                    #     sampled_sentence_string.split(),
-                    #     [[token] for token in targets_string.split()],
-                    #     max_n=1,
-                    #     weights=[1.0],
-                    # )
-
+                if self.metric == "bleu4":
                     # Compute BLEU on token level
                     reward = torch.tensor(
                         [
@@ -147,9 +146,15 @@ class RLCriterion(FairseqCriterion):
                             )
                         ]
                     )
+                elif self.metric == "chrf":
+                    reward = chrf_score(
+                        sampled_sentence_string.split(),
+                        [[target_token] for target_token in targets_string.split()],
+                        return_sentence_level_score=True,
+                    )[1]
                 else:
-                    raise Exception("Not yet implemented")
-                # log_softmax on outputs again is numerically more stable
+                    raise Exception("RL metric not yet implemented")
+            # log_softmax on outputs again is numerically more stable
             loss = (
                 -F.log_softmax(
                     outputs,
@@ -192,7 +197,8 @@ class RLCriterion(FairseqCriterion):
             # when you apply string, it treats every token as a separate sentence --> hence you calc token-level metric. SO it makes much more sense to apply mask after sampling(!)
             with torch.no_grad():
                 ####HERE calculate metric###
-                if self.metric == "BLEU4":
+
+                if self.metric == "bleu4":
                     # We follow the convention for comparibility of naively splitting on white space
                     # Compute the reward on sentence level
                     reward = torch.tensor(
@@ -206,21 +212,27 @@ class RLCriterion(FairseqCriterion):
                             )
                         ]
                     )
+                elif self.metric == "chrf":
+                    reward = chrf_score(
+                        sampled_sentences_strings,
+                        targets_strings,
+                        return_sentence_level_score=True,
+                    )[1]
                 else:
-                    raise Exception("Not yet implemented")
+                    raise Exception("RL metric not yet implemented")
 
             # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
             reward = reward.unsqueeze(1).repeat(1, seq_len)
 
-        # now you need to apply mask on both outputs and reward
-        if masks is not None:
-            outputs, targets = outputs[masks], targets[masks]
-            reward, sample_idx = reward[masks], sample_idx[masks]
+            # now you need to apply mask on both outputs and reward
+            if masks is not None:
+                outputs, targets = outputs[masks], targets[masks]
+                reward, sample_idx = reward[masks], sample_idx[masks]
 
-        loss = (
-            -F.log_softmax(outputs, dim=-1).gather(1, sample_idx.unsqueeze(1))
-            * reward
-        )
+            loss = (
+                -F.log_softmax(outputs, dim=-1).gather(1, sample_idx.unsqueeze(1))
+                * reward
+            )
 
         return loss.mean(), reward.mean()
 
