@@ -1,17 +1,17 @@
 # Reinforcement Learning for Non-Autoregressive Neural Machine Translation
 
+## Clone extension repo
+```sh
+!git clone https://github.com/jjhlgraber/fairseq_easy_extend.git
+cd fairseq_easy_extend
+```
+
 ## Installing env
 ```sh
 conda create -n NMT python=3.8
 conda activate NMT
 pip install -r requirements.txt -r "# Torch packages"
 pip install -r requirements.txt -r "# fairseq"
-```
-
-## Clone extension repo
-```sh
-!git clone https://github.com/jjhlgraber/fairseq_easy_extend.git
-cd fairseq_easy_extend
 ```
 
 ## Finetuning example for bleu
