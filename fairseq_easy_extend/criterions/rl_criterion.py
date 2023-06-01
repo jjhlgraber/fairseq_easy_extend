@@ -150,48 +150,47 @@ class RLCriterion(FairseqCriterion):
                 else:
                     raise Exception("Not yet implemented")
                 # log_softmax on outputs again is numerically more stable
-                loss = (
-                    -F.log_softmax(
-                        outputs,
-                        dim=-1,
-                    ).gather(1, sampled_sentence_idx)
-                    * reward
-                )
+            loss = (
+                -F.log_softmax(
+                    outputs,
+                    dim=-1,
+                ).gather(1, sampled_sentence_idx)
+                * reward
+            )
 
         # Example 2: mask after sampling
         else:
             bsz, seq_len, vocab_size = outputs.size()
-            with torch.no_grad():
-                # Flatten for sampling
-                probs = F.softmax(outputs, dim=-1).view(-1, vocab_size)
-                # Bring back to sentence view after sampling
-                sample_idx = torch.multinomial(probs, 1, replacement=True).view(
-                    bsz, seq_len
+            # Flatten for sampling
+            probs = F.softmax(outputs, dim=-1).view(-1, vocab_size)
+            # Bring back to sentence view after sampling
+            sample_idx = torch.multinomial(probs, 1, replacement=True).view(
+                bsz, seq_len
+            )
+
+            sampled_sentences_strings = [
+                self.tgt_dict.string(
+                    sample_idx_sent,
+                    "@@ ",
+                    "UNKNOWNTOKENINHYP",
                 )
+                for sample_idx_sent in sample_idx
+            ]
 
-                sampled_sentences_strings = [
-                    self.tgt_dict.string(
-                        sample_idx_sent,
-                        "@@ ",
-                        "UNKNOWNTOKENINHYP",
-                    )
-                    for sample_idx_sent in sample_idx
-                ]
+            targets_strings = [
+                self.tgt_dict.string(
+                    target_sent,
+                    "@@ ",
+                    "UNKNOWNTOKENINHYP",
+                )
+                for target_sent in targets
+            ]
 
-                targets_strings = [
-                    self.tgt_dict.string(
-                        target_sent,
-                        "@@ ",
-                        "UNKNOWNTOKENINHYP",
-                    )
-                    for target_sent in targets
-                ]
-
-                # print(sampled_sentence_string) --> if you apply mask before, you get a sentence which is one token
-                # imagine output[mask]=[MxV] where M is a sequence of all tokens in batch excluding padding symbols
-                # now you sample 1 vocabulary index for each token, so you end up in [Mx1] matrix
-                # when you apply string, it treats every token as a separate sentence --> hence you calc token-level metric. SO it makes much more sense to apply mask after sampling(!)
-
+            # print(sampled_sentence_string) --> if you apply mask before, you get a sentence which is one token
+            # imagine output[mask]=[MxV] where M is a sequence of all tokens in batch excluding padding symbols
+            # now you sample 1 vocabulary index for each token, so you end up in [Mx1] matrix
+            # when you apply string, it treats every token as a separate sentence --> hence you calc token-level metric. SO it makes much more sense to apply mask after sampling(!)
+            with torch.no_grad():
                 ####HERE calculate metric###
                 if self.metric == "BLEU4":
                     # We follow the convention for comparibility of naively splitting on white space
@@ -210,19 +209,18 @@ class RLCriterion(FairseqCriterion):
                 else:
                     raise Exception("Not yet implemented")
 
-                # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
-                reward = reward.unsqueeze(1).repeat(1, seq_len)
+            # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
+            reward = reward.unsqueeze(1).repeat(1, seq_len)
 
-                # now you need to apply mask on both outputs and reward
-                if masks is not None:
-                    outputs, targets = outputs[masks], targets[masks]
-                    reward, sample_idx = reward[masks], sample_idx[masks]
-                print(sample_idx.shape)
-                print(outputs.shape)
-                loss = (
-                    -F.log_softmax(outputs, dim=-1).gather(1, sample_idx.unsqueeze(1))
-                    * reward
-                )
+        # now you need to apply mask on both outputs and reward
+        if masks is not None:
+            outputs, targets = outputs[masks], targets[masks]
+            reward, sample_idx = reward[masks], sample_idx[masks]
+
+        loss = (
+            -F.log_softmax(outputs, dim=-1).gather(1, sample_idx.unsqueeze(1))
+            * reward
+        )
 
         return loss.mean(), reward.mean()
 
