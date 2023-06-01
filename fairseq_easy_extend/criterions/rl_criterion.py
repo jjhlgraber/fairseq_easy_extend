@@ -38,14 +38,13 @@ class RLCriterion(FairseqCriterion):
         3) logging outputs to display while training
         """
         nsentences, ntokens = sample["nsentences"], sample["ntokens"]
-
+        # print(self.metric)
         # B x T
         src_tokens, src_lengths = (
             sample["net_input"]["src_tokens"],
             sample["net_input"]["src_lengths"],
         )
         tgt_tokens, prev_output_tokens = sample["target"], sample["prev_target"]
-
         outputs = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
         # get loss only on tokens, not on lengths
         outs = outputs["word_ins"].get("out", None)
@@ -109,60 +108,123 @@ class RLCriterion(FairseqCriterion):
         # but make sure you apply padding mask after both on log prob outputs, reward and id's (you might need them for gather function to           extract log_probs of the samples)
 
         # Example 1: mask before sampling
-        if masks is not None:
+        # if masks is not None:
+        if False:
             outputs, targets = outputs[masks], targets[masks]
-
             # we take a softmax over outputs
             probs = F.softmax(outputs, dim=-1)
+
             # argmax over the softmax \ sampling (e.g. multinomial)
             sampled_sentence_idx = torch.multinomial(probs, 1, replacement=True)
-            sampled_sentence_string = self.tgt_dict.string(sampled_sentence_idx)
+
+            sampled_sentence_string = self.tgt_dict.string(
+                sampled_sentence_idx,
+                # "@@ ",
+                # unk_string="UNKNOWNTOKENINHYP",
+            )
+            targets_string = self.tgt_dict.string(
+                targets,
+                # "@@ ",
+                # unk_string="UNKNOWNTOKENINHYP",
+            )
 
             with torch.no_grad():
-                if self.metric.lower() == "bleu":
-                    reward_vals = bleu_score(sampled_sentence_string, targets)
+                if self.metric == "bleu":
+                    # # We follow the convention for comparibility of naively splitting on white space
+                    # reward = bleu_score(
+                    #     sampled_sentence_string.split(),
+                    #     [[token] for token in targets_string.split()],
+                    #     max_n=1,
+                    #     weights=[1.0],
+                    # )
+
+                    # Compute BLEU on token level
+                    reward = torch.tensor(
+                        [
+                            bleu_score([sampled_sentence_token], [[targets_token]])
+                            for sampled_sentence_token, targets_token in zip(
+                                sampled_sentence_string.split(), targets_string.split()
+                            )
+                        ]
+                    )
                 else:
                     raise Exception("Not yet implemented")
+                # log_softmax on outputs again is numerically more stable
+                loss = (
+                    -F.log_softmax(
+                        outputs,
+                        dim=-1,
+                    ).gather(1, sampled_sentence_idx)
+                    * reward
+                )
 
-                loss = -torch.log(probs) * reward_vals
-                loss = loss.mean()
         # Example 2: mask after sampling
         else:
             bsz, seq_len, vocab_size = outputs.size()
             with torch.no_grad():
+                # Flatten for sampling
                 probs = F.softmax(outputs, dim=-1).view(-1, vocab_size)
+                # Bring back to sentence view after sampling
                 sample_idx = torch.multinomial(probs, 1, replacement=True).view(
                     bsz, seq_len
                 )
-                # print(sample_idx.shape)
-                sampled_sentence_string = self.tgt_dict.string(
-                    sample_idx
-                )  # here you might also want to remove tokenization and bpe
-            # print(sampled_sentence_string) --> if you apply mask before, you get a sentence which is one token
-            # imagine output[mask]=[MxV] where M is a sequence of all tokens in batch excluding padding symbols
-            # now you sample 1 vocabulary index for each token, so you end up in [Mx1] matrix
-            # when you apply string, it treats every token as a separate sentence --> hence you calc token-level metric. SO it makes much more sense to apply mask after sampling(!)
 
-            ####HERE calculate metric###
-            with torch.no_grad():
-                if self.metric.lower() == "bleu":
-                    reward_vals = bleu_score(sampled_sentence_string, targets)
+                sampled_sentences_strings = [
+                    self.tgt_dict.string(
+                        sample_idx_sent,
+                        "@@ ",
+                        "UNKNOWNTOKENINHYP",
+                    )
+                    for sample_idx_sent in sample_idx
+                ]
+
+                targets_strings = [
+                    self.tgt_dict.string(
+                        target_sent,
+                        "@@ ",
+                        "UNKNOWNTOKENINHYP",
+                    )
+                    for target_sent in targets
+                ]
+
+                # print(sampled_sentence_string) --> if you apply mask before, you get a sentence which is one token
+                # imagine output[mask]=[MxV] where M is a sequence of all tokens in batch excluding padding symbols
+                # now you sample 1 vocabulary index for each token, so you end up in [Mx1] matrix
+                # when you apply string, it treats every token as a separate sentence --> hence you calc token-level metric. SO it makes much more sense to apply mask after sampling(!)
+
+                ####HERE calculate metric###
+                if self.metric == "bleu":
+                    # We follow the convention for comparibility of naively splitting on white space
+                    # Compute the reward on sentence level
+                    reward = torch.tensor(
+                        [
+                            bleu_score(
+                                [sampled_sentence_string.split()],
+                                [[target_string.split()]],
+                            )
+                            for sampled_sentence_string, target_string in zip(
+                                sampled_sentences_strings, targets_strings
+                            )
+                        ]
+                    )
                 else:
                     raise Exception("Not yet implemented")
-            # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
 
-            # now you need to apply mask on both outputs and reward
-            if masks is not None:
-                outputs, targets = outputs[masks], targets[masks]
-                reward, sample_idx = reward[masks], sample_idx[masks]
-            log_probs = F.log_probs(outputs, dim=-1)
-            # log_probs_of_samples = torch.gather(...)
-            loss = -log_probs * reward
-            loss = loss.mean()
+                # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
+                reward = reward.unsqueeze(1).repeat(1, seq_len)
 
-            # For more about mask see notes on NLP2-notes-on-mask
+                # now you need to apply mask on both outputs and reward
+                if masks is not None:
+                    outputs, targets = outputs[masks], targets[masks]
+                    reward, sample_idx = reward[masks], sample_idx[masks]
+                print(sample_idx.shape)
+                print(outputs.shape)
+                loss = (
+                    -F.log_softmax(outputs, dim=-1).gather(1, sample_idx.unsqueeze(1))
+                    * reward
+                )
 
-        return loss, reward_vals.mean()
+        return loss.mean(), reward.mean()
 
     @staticmethod
     def reduce_metrics(logging_outputs) -> None:
