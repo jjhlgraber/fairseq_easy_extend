@@ -10,8 +10,8 @@ cd fairseq_easy_extend
 ```sh
 conda create -n NMT python=3.8
 conda activate NMT
-pip install -r requirements.txt -r "# Torch packages"
-pip install -r requirements.txt -r "# fairseq"
+pip install -r requirements_torch.txt
+pip install -r requirements_fairseq.txt
 ```
 
 ## Finetuning example for bleu
