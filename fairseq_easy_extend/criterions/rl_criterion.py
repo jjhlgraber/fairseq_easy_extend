@@ -11,8 +11,10 @@ from dataclasses import dataclass, field
 from fairseq.logging import metrics
 
 # Added imports
+from sacrebleu import sentence_bleu, sentence_chrf
+import torch.nn.functional as F
+
 from torchtext.data.metrics import bleu_score
-from torchmetrics.functional import chrf_score
 import warnings
 
 with warnings.catch_warnings():
@@ -20,13 +22,13 @@ with warnings.catch_warnings():
         action="ignore",
         category=UserWarning,
     )
-    import torch.nn.functional as F
+    from torchmetrics.functional import chrf_score
 
 
 @dataclass
 class RLCriterionConfig(FairseqDataclass):
     sentence_level_metric: str = field(
-        default="BLEU4", metadata={"help": "sentence level metric"}
+        default="BLEU", metadata={"help": "sentence level metric"}
     )
 
 
@@ -35,6 +37,12 @@ class RLCriterion(FairseqCriterion):
     def __init__(self, task, sentence_level_metric):
         super().__init__(task)
         self.metric = sentence_level_metric.lower()
+        if self.metric == "bleu":
+            self.metric_func = sentence_bleu
+        elif self.metric == "chrf":
+            self.metric_func = sentence_chrf
+        else:
+            raise Exception("RL metric not yet implemented")
         self.tokenizer = encoders.build_tokenizer(Namespace(tokenizer="moses"))
         self.tgt_dict = task.target_dictionary
 
@@ -89,7 +97,7 @@ class RLCriterion(FairseqCriterion):
             s = self.tokenizer.decode(s)
         return s
 
-    def compute_reward(self, outputs, targets):
+    def compute_reward(self, sampled_sentences, targets):
         """
         #we take a softmax over outputs
         probs = F.softmax(outputs, dim=-1)
@@ -100,7 +108,14 @@ class RLCriterion(FairseqCriterion):
         reward_vals = evaluate(sample_strings, targets)
         return reward_vals, samples_idx
         """
-        pass
+        with torch.no_grad():
+            reward = torch.tensor(
+                [
+                    self.metric_func(sampled_sentence, [target]).score
+                    for sampled_sentence, target in zip(sampled_sentences, targets)
+                ]
+            )
+            return reward
 
     def _compute_loss(self, outputs, targets, masks=None):
         """
@@ -108,35 +123,72 @@ class RLCriterion(FairseqCriterion):
         targets: batch x len
         masks:   batch x len
         """
-
         # padding mask
         ##If you take mask before you do sampling: you sample over a BATCH and your reward is on token level
         # if you take mask after, you sample SENTENCES and calculate reward on a sentence level
         # but make sure you apply padding mask after both on log prob outputs, reward and id's (you might need them for gather function to           extract log_probs of the samples)
 
+        # Locate possible padding tokens for masking later
+        masks = targets.ne(self.tgt_dict.pad())
+        bsz, seq_len, vocab_size = outputs.size()
+        # Flatten for sampling
+        probs = F.softmax(outputs, dim=-1).view(-1, vocab_size)
+        # Bring back to sentence view after sampling
+        sample_idx = torch.multinomial(probs, 1, replacement=True).view(bsz, seq_len)
+
+        sampled_sentences_strings = [
+            self.decode(sample_idx_sent) for sample_idx_sent in sample_idx
+        ]
+        print(sampled_sentences_strings)
+        targets_strings = [
+            self.decode(
+                target_sent,
+            )
+            for target_sent in targets
+        ]
+        print(targets_strings)
+
+        with torch.no_grad():
+            ####HERE calculate metric###
+            reward = self.compute_reward(sampled_sentences_strings, targets_strings)
+
+        # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
+        reward = reward.unsqueeze(1).repeat(1, seq_len)
+
+        # now you need to apply mask on both outputs and reward
+        if masks is not None:
+            outputs, targets = outputs[masks], targets[masks]
+            reward, sample_idx = reward[masks], sample_idx[masks]
+
+        # numerically more stable than log on probs
+        log_probs = F.log_softmax(outputs, dim=-1)
+
+        loss = -log_probs.gather(1, sample_idx.unsqueeze(1)) * reward
+
+        return loss.mean(), reward.mean()
+
         # Example 1: mask before sampling
         # if masks is not None:
-        if False:
+        if True:
             outputs, targets = outputs[masks], targets[masks]
             # we take a softmax over outputs
             probs = F.softmax(outputs, dim=-1)
 
             # argmax over the softmax \ sampling (e.g. multinomial)
             sampled_sentence_idx = torch.multinomial(probs, 1, replacement=True)
+            print(torch.sum(masks == False))
+            print(
+                self.decode(
+                    sampled_sentence_idx,
+                )
+            )
 
-            sampled_sentence_string = self.tgt_dict.string(
-                sampled_sentence_idx,
-                # "@@ ",
-                # unk_string="UNKNOWNTOKENINHYP",
-            )
-            targets_string = self.tgt_dict.string(
-                targets,
-                # "@@ ",
-                # unk_string="UNKNOWNTOKENINHYP",
-            )
+            assert False
 
             with torch.no_grad():
-                if self.metric == "bleu4":
+                reward = self.compute_reward(sampled_sentences, targets)
+
+                if self.metric == "bleu":
                     # Compute BLEU on token level
                     reward = torch.tensor(
                         [
@@ -174,25 +226,15 @@ class RLCriterion(FairseqCriterion):
             )
 
             sampled_sentences_strings = [
-                self.tgt_dict.string(
-                    sample_idx_sent,
-                    "@@ ",
-                    "UNKNOWNTOKENINHYP",
-                )
-                for sample_idx_sent in sample_idx
+                self.decode(sample_idx_sent) for sample_idx_sent in sample_idx
             ]
 
             targets_strings = [
-                self.tgt_dict.string(
+                self.decode(
                     target_sent,
-                    "@@ ",
-                    "UNKNOWNTOKENINHYP",
                 )
                 for target_sent in targets
             ]
-            print(targets_strings)
-            print(self.decode(targets))
-            assert False
 
             # print(sampled_sentence_string) --> if you apply mask before, you get a sentence which is one token
             # imagine output[mask]=[MxV] where M is a sequence of all tokens in batch excluding padding symbols
@@ -201,7 +243,7 @@ class RLCriterion(FairseqCriterion):
             with torch.no_grad():
                 ####HERE calculate metric###
 
-                if self.metric == "bleu4":
+                if self.metric == "bleu":
                     # We follow the convention for comparibility of naively splitting on white space
                     # Compute the reward on sentence level
                     reward = torch.tensor(
