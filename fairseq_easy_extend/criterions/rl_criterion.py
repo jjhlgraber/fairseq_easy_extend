@@ -14,15 +14,15 @@ from fairseq.logging import metrics
 from sacrebleu import sentence_bleu, sentence_chrf
 import torch.nn.functional as F
 
-from torchtext.data.metrics import bleu_score
-import warnings
+# from torchtext.data.metrics import bleu_score
+# import warnings
 
-with warnings.catch_warnings():
-    warnings.filterwarnings(
-        action="ignore",
-        category=UserWarning,
-    )
-    from torchmetrics.functional import chrf_score
+# with warnings.catch_warnings():
+#     warnings.filterwarnings(
+#         action="ignore",
+#         category=UserWarning,
+#     )
+#     from torchmetrics.functional import chrf_score
 
 
 @dataclass
