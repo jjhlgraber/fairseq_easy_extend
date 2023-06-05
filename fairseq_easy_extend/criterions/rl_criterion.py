@@ -52,6 +52,7 @@ class RLCriterion(FairseqCriterion):
             raise Exception("RL metric not yet implemented")
         self.tokenizer = encoders.build_tokenizer(Namespace(tokenizer="moses"))
         self.tgt_dict = task.target_dictionary
+        self.src_dict = task.source_dictionary
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -94,18 +95,29 @@ class RLCriterion(FairseqCriterion):
 
         return loss, sample_size, logging_output
 
-    def decode(self, toks, escape_unk=False):
+    def decode(self, toks, escape_unk=False, dict="tgt"):
         with torch.no_grad():
-            s = self.tgt_dict.string(
-                toks.int().cpu(),
-                "@@ ",
-                # The default unknown string in fairseq is `<unk>`, but
-                # this is tokenized by sacrebleu as `< unk >`, inflating
-                # BLEU scores. Instead, we use a somewhat more verbose
-                # alternative that is unlikely to appear in the real
-                # reference, but doesn't get split into multiple tokens.
-                unk_string=("UNKNOWNTOKENINREF" if escape_unk else "UNKNOWNTOKENINHYP"),
-            )
+            if dict == "tgt":
+                s = self.tgt_dict.string(
+                    toks.int().cpu(),
+                    "@@ ",
+                    # The default unknown string in fairseq is `<unk>`, but
+                    # this is tokenized by sacrebleu as `< unk >`, inflating
+                    # BLEU scores. Instead, we use a somewhat more verbose
+                    # alternative that is unlikely to appear in the real
+                    # reference, but doesn't get split into multiple tokens.
+                    unk_string=(
+                        "UNKNOWNTOKENINREF" if escape_unk else "UNKNOWNTOKENINHYP"
+                    ),
+                )
+            else:
+                s = self.src_dict.string(
+                    toks.int().cpu(),
+                    "@@ ",
+                    unk_string=(
+                        "UNKNOWNTOKENINREF" if escape_unk else "UNKNOWNTOKENINHYP"
+                    ),
+                )
             s = self.tokenizer.decode(s)
         return s
 
@@ -115,7 +127,7 @@ class RLCriterion(FairseqCriterion):
             if self.metric == "comet":
                 batch = [
                     {
-                        "src": self.decode(src_tokens_sent),
+                        "src": self.decode(src_tokens_sent, dict="src"),
                         "mt": self.decode(sample_sent),
                         "ref": self.decode(target),
                     }
