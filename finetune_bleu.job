@@ -15,7 +15,7 @@ module load Anaconda3/2021.05
 # Activate your environment
 source activate NMT
 # Run your code
-srun train.py \
+srun python train.py \
     --config-dir "fairseq_easy_extend/models/nat" \
     --config-name "cmlm_config.yaml" \
     criterion.sentence_level_metric=bleu \

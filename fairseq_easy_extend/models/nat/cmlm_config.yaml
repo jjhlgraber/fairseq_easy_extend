@@ -36,7 +36,9 @@ optimization:
   max_update: 20000
   stop_min_lr: 1e-09
 checkpoint:
-  keep_last_epochs: 1
+  save_interval_updates: 15
+  keep_interval_updates: 1
+  # keep_last_epochs: 1
   # no_epoch_checkpoints: true
   save_dir: ???
 common:
