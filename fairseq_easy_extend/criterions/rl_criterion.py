@@ -139,14 +139,13 @@ class RLCriterion(FairseqCriterion):
         sampled_sentences_strings = [
             self.decode(sample_idx_sent) for sample_idx_sent in sample_idx
         ]
-        print(sampled_sentences_strings)
+
         targets_strings = [
             self.decode(
                 target_sent,
             )
             for target_sent in targets
         ]
-        print(targets_strings)
 
         with torch.no_grad():
             ####HERE calculate metric###
@@ -154,17 +153,16 @@ class RLCriterion(FairseqCriterion):
 
         # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
         reward = reward.unsqueeze(1).repeat(1, seq_len)
-
         # now you need to apply mask on both outputs and reward
         if masks is not None:
             outputs, targets = outputs[masks], targets[masks]
             reward, sample_idx = reward[masks], sample_idx[masks]
-
         # numerically more stable than log on probs
         log_probs = F.log_softmax(outputs, dim=-1)
-
-        loss = -log_probs.gather(1, sample_idx.unsqueeze(1)) * reward
-
+        # select the log probs for the sampled indices
+        log_probs_of_samples = log_probs.gather(1, sample_idx.unsqueeze(1)).squeeze()
+        # compute loss
+        loss = -log_probs_of_samples * reward
         return loss.mean(), reward.mean()
 
         # Example 1: mask before sampling
