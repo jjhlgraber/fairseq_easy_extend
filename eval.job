@@ -1,0 +1,26 @@
+#!/bin/bash
+#SBATCH --partition=gpu_titanrtx_shared_course
+#SBATCH --gres=gpu:1
+#SBATCH --job-name=eval_blue
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --time=12:00:00
+#SBATCH --mem=32000M
+#SBATCH --output=out_baseline.out
+
+module purge
+module load 2021
+module load Anaconda3/2021.05
+
+source activate NMT
+
+srun python decode.py /home/lcur1120/NLP2/NA-NMT-Project/iwslt14.tokenized.de-en --source-lang de --target-lang en \
+--path /home/lcur1120/NLP2/NA-NMT-Project/fairseq_easy_extend/checkpoints/checkpoints_bleu/checkpoint_last.pt \
+--task translation_lev \
+--iter-decode-max-iter 9 \
+--iter-decode-with-beam 3 \
+--gen-subset test \
+--print-step \
+--remove-bpe \
+--tokenizer moses \
+--scoring bleu
