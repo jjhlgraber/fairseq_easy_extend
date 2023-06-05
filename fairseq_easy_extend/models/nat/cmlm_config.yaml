@@ -27,7 +27,7 @@ lr_scheduler:
   warmup_updates: 1
   warmup_init_lr: 1e-07
 dataset:
-  # batch_size: 10
+  # batch_size: 2
   max_tokens: 8192
   validate_interval_updates: 1000
 optimization:

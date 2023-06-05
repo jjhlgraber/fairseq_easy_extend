@@ -14,6 +14,9 @@ from fairseq.logging import metrics
 from sacrebleu import sentence_bleu, sentence_chrf
 import torch.nn.functional as F
 
+from comet import download_model, load_from_checkpoint
+
+
 # from torchtext.data.metrics import bleu_score
 # import warnings
 
@@ -41,6 +44,10 @@ class RLCriterion(FairseqCriterion):
             self.metric_func = sentence_bleu
         elif self.metric == "chrf":
             self.metric_func = sentence_chrf
+        elif self.metric == "comet":
+            model_path = download_model("Unbabel/wmt22-comet-da")
+            model = load_from_checkpoint(model_path)
+            self.metric_func = model.predict
         else:
             raise Exception("RL metric not yet implemented")
         self.tokenizer = encoders.build_tokenizer(Namespace(tokenizer="moses"))
@@ -63,9 +70,14 @@ class RLCriterion(FairseqCriterion):
         outputs = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
         # get loss only on tokens, not on lengths
         outs = outputs["word_ins"].get("out", None)
-        masks = outputs["word_ins"].get("mask", None)
+        # masks = outputs["word_ins"].get("mask", None)
 
-        loss, reward = self._compute_loss(outs, tgt_tokens, masks)
+        loss, reward = self._compute_loss(
+            outs,
+            tgt_tokens,
+            src_tokens,
+            #   masks
+        )
 
         # NOTE:
         # we don't need to use sample_size as denominator for the gradient
@@ -97,27 +109,45 @@ class RLCriterion(FairseqCriterion):
             s = self.tokenizer.decode(s)
         return s
 
-    def compute_reward(self, sampled_sentences, targets):
-        """
-        #we take a softmax over outputs
-        probs = F.softmax(outputs, dim=-1)
-        #argmax over the softmax \ sampling (e.g. multinomial)
-        samples_idx = torch.multinomial(probs, 1, replacement=True)
-        sample_strings = self.tgt_dict.string(samples_idx)  #see dictionary class of fairseq
-        #sample_strings = "I am a sentence"
-        reward_vals = evaluate(sample_strings, targets)
-        return reward_vals, samples_idx
-        """
+    def compute_reward(self, sample_idx, targets, src_tokens):
+        """ """
         with torch.no_grad():
-            reward = torch.tensor(
-                [
-                    self.metric_func(sampled_sentence, [target]).score
-                    for sampled_sentence, target in zip(sampled_sentences, targets)
+            if self.metric == "comet":
+                batch = [
+                    {
+                        "src": self.decode(src_tokens_sent),
+                        "mt": self.decode(sample_sent),
+                        "ref": self.decode(target),
+                    }
+                    for sample_sent, target, src_tokens_sent in zip(
+                        sample_idx, targets, src_tokens
+                    )
                 ]
-            )
+                reward = torch.tensor(
+                    self.metric_func(batch, batch_size=64, progress_bar=False).scores
+                )
+            else:
+                sampled_sentences_strings = [
+                    self.decode(sample_idx_sent) for sample_idx_sent in sample_idx
+                ]
+
+                targets_strings = [
+                    self.decode(
+                        target_sent,
+                    )
+                    for target_sent in targets
+                ]
+                reward = torch.tensor(
+                    [
+                        self.metric_func(sampled_sentence, [target]).score
+                        for sampled_sentence, target in zip(
+                            sampled_sentences_strings, targets_strings
+                        )
+                    ]
+                )
             return reward
 
-    def _compute_loss(self, outputs, targets, masks=None):
+    def _compute_loss(self, outputs, targets, src_tokens, masks=None):
         """
         outputs: batch x len x d_model
         targets: batch x len
@@ -136,20 +166,24 @@ class RLCriterion(FairseqCriterion):
         # Bring back to sentence view after sampling
         sample_idx = torch.multinomial(probs, 1, replacement=True).view(bsz, seq_len)
 
-        sampled_sentences_strings = [
-            self.decode(sample_idx_sent) for sample_idx_sent in sample_idx
-        ]
-
-        targets_strings = [
-            self.decode(
-                target_sent,
-            )
-            for target_sent in targets
-        ]
-
         with torch.no_grad():
             ####HERE calculate metric###
-            reward = self.compute_reward(sampled_sentences_strings, targets_strings)
+            reward = self.compute_reward(sample_idx, targets, src_tokens)
+
+        # sampled_sentences_strings = [
+        #     self.decode(sample_idx_sent) for sample_idx_sent in sample_idx
+        # ]
+
+        # targets_strings = [
+        #     self.decode(
+        #         target_sent,
+        #     )
+        #     for target_sent in targets
+        # ]
+
+        # with torch.no_grad():
+        #     ####HERE calculate metric###
+        #     reward = self.compute_reward(sampled_sentences_strings, targets_strings, src_tokens)
 
         # expand it to make it of a shape BxT - each token gets the same reward value (e.g. bleu is 20, so each token gets reward of 20 [20,20,20,20,20])
         reward = reward.unsqueeze(1).repeat(1, seq_len)
