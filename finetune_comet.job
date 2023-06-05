@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --partition=gpu_titanrtx_shared_course
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=ft_chrf
+#SBATCH --job-name=ft_comet
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=04:00:00
 #SBATCH --mem=32000M
-#SBATCH --output=chrf_output.out
+#SBATCH --output=comet_output.out
 
 module purge
 module load 2021
@@ -18,8 +18,8 @@ source activate NMT
 srun train.py \
     --config-dir "fairseq_easy_extend/models/nat" \
     --config-name "cmlm_config.yaml" \
-    criterion.sentence_level_metric=chrf \
+    criterion.sentence_level_metric=comet \
     task.data=/home/lcur1120/NLP2/NA-NMT-Project/iwslt14.tokenized.de-en \
-    checkpoint.save_dir=checkpoints_chrf \
+    checkpoint.save_dir=checkpoints_comet \
     checkpoint.restore_file=/home/lcur1120/NLP2/NA-NMT-Project/checkpoint_best.pt \
     checkpoint.reset_optimizer=True

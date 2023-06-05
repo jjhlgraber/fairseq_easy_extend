@@ -124,7 +124,7 @@ class RLCriterion(FairseqCriterion):
                     )
                 ]
                 reward = torch.tensor(
-                    self.metric_func(batch, batch_size=64, progress_bar=False).scores
+                    self.metric_func(batch, batch_size=512, progress_bar=False).scores
                 )
             else:
                 sampled_sentences_strings = [

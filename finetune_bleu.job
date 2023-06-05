@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --partition=gpu_titanrtx_shared_course
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=ft_blue
+#SBATCH --job-name=ft_bleu
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=04:00:00
 #SBATCH --mem=32000M
-#SBATCH --output=outputs/bleu_output.out
+#SBATCH --output=bleu_output.out
 
 module purge
 module load 2021
