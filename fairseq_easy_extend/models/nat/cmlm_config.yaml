@@ -27,7 +27,7 @@ lr_scheduler:
   warmup_updates: 1
   warmup_init_lr: 1e-07
 dataset:
-  batch_size: 10
+  # batch_size: 10
   max_tokens: 8192
   validate_interval_updates: 1000
 optimization:
@@ -36,7 +36,9 @@ optimization:
   max_update: 20000
   stop_min_lr: 1e-09
 checkpoint:
-  no_epoch_checkpoints: true
+  keep_last_epochs: 1
+  # no_epoch_checkpoints: true
+  save_dir: ???
 common:
   log_format: simple
   log_interval: 1

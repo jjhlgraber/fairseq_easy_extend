@@ -1,0 +1,25 @@
+#!/bin/bash
+#SBATCH --partition=gpu_titanrtx_shared_course
+#SBATCH --gres=gpu:1
+#SBATCH --job-name=ft_chrf
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --time=04:00:00
+#SBATCH --mem=32000M
+#SBATCH --output=outputs/ft_chrf_output.out
+
+module purge
+module load 2021
+module load Anaconda3/2021.05
+
+# Activate your environment
+source activate NMT
+# Run your code
+srun train.py \
+    --config-dir "fairseq_easy_extend/models/nat" \
+    --config-name "cmlm_config.yaml" \
+    criterion.sentence_level_metric=chrf \
+    task.data=/home/lcur1120/NLP2/NA-NMT-Project/iwslt14.tokenized.de-en \
+    checkpoint.save_dir=checkpoints_chrf \
+    checkpoint.restore_file=/home/lcur1120/NLP2/NA-NMT-Project/checkpoint_best.pt \
+    checkpoint.reset_optimizer=True
