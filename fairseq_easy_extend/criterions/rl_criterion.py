@@ -162,7 +162,7 @@ class RLCriterion(FairseqCriterion):
         # select the log probs for the sampled indices
         log_probs_of_samples = log_probs.gather(1, sample_idx.unsqueeze(1)).squeeze()
         # compute loss
-        loss = -log_probs_of_samples * reward
+        loss = -log_probs_of_samples * reward.to(log_probs_of_samples.device)
         return loss.mean(), reward.mean()
 
         # Example 1: mask before sampling
